@@ -1,0 +1,277 @@
+{
+	"AWSTemplateFormatVersion": "2010-09-09",
+    "Description": "AWS Honeypot",
+    "Parameters": {
+        "domain": { "Type": "String", "Description": "base domain, example: test" },
+        "alerturl": { "Type": "String", "Description": "URL to post alert messages" }
+    },
+	"Resources": {
+        "S3LambdaRole": {
+            "Type": "AWS::IAM::Role",
+            "Properties": {
+                "AssumeRolePolicyDocument": {
+                    "Version": "2012-10-17",
+                    "Statement": [
+                      {
+                        "Effect": "Allow",
+                        "Principal": {
+                          "Service": [
+                            "lambda.amazonaws.com"
+                          ]
+                        },
+                        "Action": [
+                          "sts:AssumeRole"
+                        ]
+                      }
+                    ]
+                },
+               "Policies": [{
+                    "PolicyName": "honeypot-s3-lambda",
+                    "PolicyDocument": {
+                        "Version" : "2012-10-17",
+                        "Statement": [ 
+                            {
+                                "Effect": "Allow",
+                                "Action": [
+                                    "logs:CreateLogGroup",
+                                    "logs:CreateLogStream",
+                                    "logs:PutLogEvents"
+                                ],
+                                "Resource": "arn:aws:logs:*:*:*"
+                            },
+                            {
+                                "Effect":"Allow",
+                                "Action":"s3:GetObject",
+                                "Resource": { "Fn::Sub": "arn:aws:s3:::${domain}-honeypot-logs/*" }
+                            }
+                        ]
+                    }
+                }],
+                "Path": "/",
+                "RoleName": "honeypot-s3-lambda"
+            }
+        },
+        "S3LambdaFunction": {
+            "Type": "AWS::Lambda::Function",
+            "DependsOn": "S3LambdaRole",
+            "Properties": {
+                "Handler": "index.lambda_handler",
+                "Environment" : { 
+                    "Variables" : { 
+                      "ALERT_URL": { "Ref": "alerturl" }
+                    } 
+                },
+                "Role": {
+                    "Fn::GetAtt": [
+                      "S3LambdaRole",
+                      "Arn"
+                    ]
+                },
+                "Code": {
+					"ZipFile": {
+						"Fn::Join": ["\n", [
+                            "import json                                                                                               ",
+                            "import boto3                                                                                              ",
+							"from botocore.vendored import requests                                                                    ",
+							"def lambda_handler(event, context):                                                                       ",
+                            "  print(json.dumps(event))                                                                                ",
+                            "  s3 = boto3.resource('s3')                                                                               ",
+                            "  obj = s3.Object(event['Records'][0]['s3']['bucket']['name'], event['Records'][0]['s3']['object']['key'])",
+                            "  s3message = obj.get()['Body'].read().decode('utf-8')                                                    ",
+                            "  print(s3message)                                                                                        ",
+                            "  if s3message.split()[6] == '-':                                                                         ",
+                            "    # Anonymous hit                                                                                       ",
+                            "    print('HIT: %s' % s3message)                                                                          ",
+                            "    requests.post(os.environ['ALERT_URL'], data=s3message)                                                "
+						]]
+					}
+				},
+                "Runtime": "python3.6",
+                "Timeout": "30",
+                "Tags": [
+                    {
+                      "Key": "Application",
+                      "Value": "aws-honeypot"
+                    }
+                ]
+            }
+        },
+        "S3NotificationPermission": {
+            "Type": "AWS::Lambda::Permission",
+            "Properties": {
+                "Action": "lambda:invokeFunction",
+                "FunctionName": { "Ref": "S3LambdaFunction"}, 
+                "Principal": "s3.amazonaws.com"
+            },
+            "DependsOn": "S3LambdaFunction"
+        },
+        "S3BucketHoneyPotLogs": {
+            "Type" : "AWS::S3::Bucket",
+            "DependsOn": "S3NotificationPermission",
+			"Properties": {
+                "BucketName": { "Fn::Join" : [ "-", [ {"Ref": "domain" },"honeypot","logs" ] ] },
+                "AccessControl": "LogDeliveryWrite",
+                "NotificationConfiguration": {
+                    "LambdaConfigurations": [
+                      {
+                        "Event" : "s3:ObjectCreated:*",
+                        "Function" : { "Fn::GetAtt" : ["S3LambdaFunction", "Arn"] },
+                        "Filter" : {
+                          "S3Key" : {
+                            "Rules" : [
+                              {
+                                "Name" : "prefix",
+                                "Value" : "s3logs/"
+                              }
+                            ]
+                          }
+                        }
+                      }
+                    ]
+                  },
+                  "Tags": [
+                    {
+                      "Key": "Application",
+                      "Value": "aws-honeypot"
+                    }
+                ]
+			}
+		},
+		"S3BucketAdministrator": {
+			"Type" : "AWS::S3::Bucket",
+			"Properties": {
+                "BucketName": { "Fn::Join" : [ "-", [ {"Ref": "domain" },"administrator" ] ] },
+                "AccessControl": "PublicRead",
+                "LoggingConfiguration": {
+                    "DestinationBucketName": { "Ref": "S3BucketHoneyPotLogs" },
+                    "LogFilePrefix": "s3logs/"
+                },
+                "Tags": [
+                    {
+                      "Key": "Application",
+                      "Value": "aws-honeypot"
+                    }
+                ]
+			}
+        },
+        "S3BucketArchive": {
+			"Type" : "AWS::S3::Bucket",
+			"Properties": {
+                "BucketName": { "Fn::Join" : [ "-", [ {"Ref": "domain" },"archive" ] ] },
+                "AccessControl": "PublicRead",
+                "LoggingConfiguration": {
+                    "DestinationBucketName": { "Ref": "S3BucketHoneyPotLogs" },
+                    "LogFilePrefix": "s3logs/"
+                },
+                "Tags": [
+                    {
+                      "Key": "Application",
+                      "Value": "aws-honeypot"
+                    }
+                ]
+			}
+		},
+		"S3BucketBackup": {
+			"Type" : "AWS::S3::Bucket",
+			"Properties": {
+                "BucketName": { "Fn::Join" : [ "-", [ {"Ref": "domain" },"backup" ] ] },
+                "AccessControl": "PublicRead",
+                "LoggingConfiguration": {
+                    "DestinationBucketName": { "Ref": "S3BucketHoneyPotLogs" },
+                    "LogFilePrefix": "s3logs/"
+                },
+                "Tags": [
+                    {
+                      "Key": "Application",
+                      "Value": "aws-honeypot"
+                    }
+                ]
+			}
+        },
+        "S3BucketDatabase": {
+			"Type" : "AWS::S3::Bucket",
+			"Properties": {
+                "BucketName": { "Fn::Join" : [ "-", [ {"Ref": "domain" },"database" ] ] },
+                "AccessControl": "PublicRead",
+                "LoggingConfiguration": {
+                    "DestinationBucketName": { "Ref": "S3BucketHoneyPotLogs" },
+                    "LogFilePrefix": "s3logs/"
+                },
+                "Tags": [
+                    {
+                      "Key": "Application",
+                      "Value": "aws-honeypot"
+                    }
+                ]
+			}
+		},
+		"S3BucketFiles": {
+			"Type" : "AWS::S3::Bucket",
+			"Properties": {
+                "BucketName": { "Fn::Join" : [ "-", [ {"Ref": "domain" },"files" ] ] },
+                "AccessControl": "PublicRead",
+                "LoggingConfiguration": {
+                    "DestinationBucketName": { "Ref": "S3BucketHoneyPotLogs" },
+                    "LogFilePrefix": "s3logs/"
+                },
+                "Tags": [
+                    {
+                      "Key": "Application",
+                      "Value": "aws-honeypot"
+                    }
+                ]
+			}
+        },
+        "S3BucketGit": {
+			"Type" : "AWS::S3::Bucket",
+			"Properties": {
+                "BucketName": { "Fn::Join" : [ "-", [ {"Ref": "domain" },"git" ] ] },
+                "AccessControl": "PublicRead",
+                "LoggingConfiguration": {
+                    "DestinationBucketName": { "Ref": "S3BucketHoneyPotLogs" },
+                    "LogFilePrefix": "s3logs/"
+                },
+                "Tags": [
+                    {
+                      "Key": "Application",
+                      "Value": "aws-honeypot"
+                    }
+                ]
+			}
+		},
+		"S3BucketLogs": {
+			"Type" : "AWS::S3::Bucket",
+			"Properties": {
+                "BucketName": { "Fn::Join" : [ "-", [ {"Ref": "domain" },"logs" ] ] },
+                "AccessControl": "PublicRead",
+                "LoggingConfiguration": {
+                    "DestinationBucketName": { "Ref": "S3BucketHoneyPotLogs" },
+                    "LogFilePrefix": "s3logs/"
+                },
+                "Tags": [
+                    {
+                      "Key": "Application",
+                      "Value": "aws-honeypot"
+                    }
+                ]
+			}
+        },
+		"S3BucketWeb": {
+			"Type" : "AWS::S3::Bucket",
+			"Properties": {
+                "BucketName": { "Fn::Join" : [ "-", [ {"Ref": "domain" },"web" ] ] },
+                "AccessControl": "PublicRead",
+                "LoggingConfiguration": {
+                    "DestinationBucketName": { "Ref": "S3BucketHoneyPotLogs" },
+                    "LogFilePrefix": "s3logs/"
+                },
+                "Tags": [
+                    {
+                      "Key": "Application",
+                      "Value": "aws-honeypot"
+                    }
+                ]
+			}
+		}
+	}
+}

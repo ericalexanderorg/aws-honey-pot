@@ -1,0 +1,2 @@
+# Check out trophosphere: https://github.com/cloudtools/troposphere
+    * Could be a better way to pass a list of domains & bucket names while also checking that they don't already exist

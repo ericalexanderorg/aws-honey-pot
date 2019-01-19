@@ -1,19 +1,19 @@
-###Summary
+### Summary
 
 AWS Honey Pot is a tool to launch server-less honey pot services in AWS, detect their access, and alert. 
 
-###Features
+### Features
 
 - Create S3 buckets
 - Create Lambda function that receives S3 access logs and forwards relevant logs
 
-###Road Map
+### Road Map
 
 - Utilize API Gateway to mimic common web apps
 - Utilize Elasticsearch Service
 - Provision certs, either from Amazon or Let's Encrypt. Certs are easily discoverable and should attract recon activity.
 
-###How To
+### How To
 
 The template.json file is an AWS CloudFormation template that can be used to launch a stack. 
 

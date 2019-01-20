@@ -72,17 +72,22 @@
 						"Fn::Join": ["\n", [
                             "import json                                                                                               ",
                             "import boto3                                                                                              ",
-							"from botocore.vendored import requests                                                                    ",
+                            "import os                                                                                                 ",
+                            "from botocore.vendored import requests                                                                    ",
+                            "                                                                                                          ",
 							"def lambda_handler(event, context):                                                                       ",
                             "  print(json.dumps(event))                                                                                ",
                             "  s3 = boto3.resource('s3')                                                                               ",
                             "  obj = s3.Object(event['Records'][0]['s3']['bucket']['name'], event['Records'][0]['s3']['object']['key'])",
-                            "  s3message = obj.get()['Body'].read().decode('utf-8')                                                    ",
-                            "  print(s3message)                                                                                        ",
-                            "  if s3message.split()[6] == '-':                                                                         ",
-                            "    # Anonymous hit                                                                                       ",
-                            "    print('HIT: %s' % s3message)                                                                          ",
-                            "    requests.post(os.environ['ALERT_URL'], data=s3message)                                                "
+                            "  log_lines = obj.get()['Body'].read().decode('utf-8').splitlines()                                       ",
+                            "  for line in log_lines:                                                                                  ",
+                            "    print(line)                                                                                           ",
+                            "    who = line.split()[5]                                                                                 ",
+                            "    print(who)                                                                                            ",
+                            "    if who == '-':                                                                                        ",
+                            "      # Anonymous hit                                                                                     ",
+                            "      print('HIT: %s' % line)                                                                             ",
+                            "      requests.post(os.environ['ALERT_URL'], data=line)                                                   "
 						]]
 					}
 				},
